@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Driver Dashboard - Ridesathi</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        /* ── Shared Ride Passenger Panel ── */
+        .shared-passenger-panel {
+            margin-top: 14px;
+            background: linear-gradient(135deg, #1a73e8 0%, #0d47a1 100%);
+            border-radius: 12px; padding: 18px; color: #fff;
+        }
+        .shared-passenger-panel h4 { margin: 0 0 12px; font-size: 15px; }
+        .passenger-card {
+            background: rgba(255,255,255,.15); border-radius: 8px;
+            padding: 12px 14px; margin-bottom: 10px;
+        }
+        .passenger-card:last-child { margin-bottom: 0; }
+        .passenger-card p { margin: 3px 0; font-size: 13px; opacity: .9; }
+        .passenger-card .p-name { font-size: 15px; font-weight: 700; opacity: 1; }
+        .shared-fare-note {
+            margin-top: 12px; background: rgba(255,255,255,.2);
+            border-radius: 8px; padding: 10px 14px; text-align: center;
+        }
+        .shared-fare-note p { margin: 0; font-size: 13px; }
+        .shared-fare-note .total { font-size: 22px; font-weight: 800; margin-top: 4px; }
+
+        /* pending share indicator */
+        .share-pending-badge {
+            display: inline-block; background: #ffc107; color: #333;
+            border-radius: 20px; padding: 3px 10px; font-size: 11px; font-weight: 700;
+            animation: badgePulse 1.4s infinite;
+        }
+        @keyframes badgePulse {
+            0%,100% { opacity:1; }
+            50%      { opacity:.5; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Navigation -->
+        <nav class="navbar">
+            <div class="nav-brand"><h1>🚕 Ridesathi</h1></div>
+            <div class="nav-links">
+                <span class="user-info">Welcome, <span id="driverName"></span></span>
+                <a href="#" class="nav-link" onclick="logout(); return false;">Logout</a>
+            </div>
+        </nav>
+
+        <section class="dashboard">
+            <h2>Driver Dashboard</h2>
+
+            <!-- Driver Status -->
+            <div class="dashboard-card">
+                <h3>👤 Driver Status</h3>
+                <div class="driver-status-container">
+                    <div class="status-item">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="onlineToggle">
+                            <span>Go Online</span>
+                        </label>
+                    </div>
+                    <div class="status-display">
+                        <p>Status: <span id="onlineStatus" class="status-badge status-offline">Offline</span></p>
+                        <p>Availability: <span id="availabilityStatus" class="status-badge status-available">Available</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Available Rides -->
+            <div class="dashboard-card">
+                <h3>📍 Available Rides</h3>
+                <div class="filter-controls">
+                    <select id="vehicleFilter" class="form-control">
+                        <option value="">All Vehicles</option>
+                        <option value="Auto">Auto (3-wheeler)</option>
+                        <option value="Car">Car (4-wheeler)</option>
+                    </select>
+                    <button class="btn btn-secondary" onclick="loadAvailableRides()">Refresh</button>
+                </div>
+                <div id="availableRidesContainer" class="rides-list">
+                    <p class="text-muted">Loading available rides...</p>
+                </div>
+            </div>
+
+            <!-- Current Ride -->
+            <div class="dashboard-card">
+                <h3>🚕 Current Ride</h3>
+                <div id="currentRideContainer" class="ride-container">
+                    <p class="text-muted">No active ride</p>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px;">
+                    <div>
+                        <div id="driverMap" class="map-container" style="height:400px;"></div>
+                    </div>
+                    <div>
+                        <h4>📍 Directions</h4>
+                        <div id="directionsContainer" class="directions-list"
+                             style="height:400px;overflow-y:auto;border:1px solid #ddd;border-radius:8px;padding:10px;">
+                            <p class="text-muted">No directions available</p>
+                        </div>
+                    </div>
+                </div>
+                <div id="driverRouteInfo" class="mt-10 text-muted"></div>
+            </div>
+
+            <!-- Ride History -->
+            <div class="dashboard-card">
+                <h3>📋 Your Ride History</h3>
+                <div id="rideHistoryContainer" class="rides-list">
+                    <p class="text-muted">No rides completed yet</p>
+                </div>
+            </div>
+        </section>
+
+        <footer class="footer">
+            <p>&copy; 2026 Ridesathi. All rights reserved.</p>
+        </footer>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:5000/api';
+        let driverId, driverName, isOnline = false;
+        let currentRideId = null, currentRideData = null;
+
+        // ═══════════════════════════════════════
+        // INIT
+        // ═══════════════════════════════════════
+        function initDashboard() {
+            driverId   = localStorage.getItem('driverId');
+            driverName = localStorage.getItem('driverName');
+            if (!driverId) { window.location.href = 'login.html'; return; }
+            document.getElementById('driverName').textContent = driverName;
+            document.getElementById('onlineToggle').addEventListener('change', toggleOnline);
+            loadRideHistory();
+        }
+
+        function toggleOnline() {
+            isOnline = document.getElementById('onlineToggle').checked;
+            updateStatusDisplay();
+            if (isOnline) {
+                loadAvailableRides();
+                setInterval(() => { if (isOnline && !currentRideId) loadAvailableRides(); }, 5000);
+            }
+        }
+
+        function updateStatusDisplay() {
+            const el = document.getElementById('onlineStatus');
+            el.textContent = isOnline ? 'Online'  : 'Offline';
+            el.className   = isOnline ? 'status-badge status-online' : 'status-badge status-offline';
+        }
+
+        // ═══════════════════════════════════════
+        // AVAILABLE RIDES  — shows shared-ride indicator
+        // ═══════════════════════════════════════
+        async function loadAvailableRides() {
+            if (!isOnline) return;
+            const vf  = document.getElementById('vehicleFilter').value;
+            const url = vf ? `${API_BASE}/rides/available?vehicleType=${vf}` : `${API_BASE}/rides/available`;
+
+            try {
+                const res  = await fetch(url, { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } });
+                const data = await res.json();
+                const container = document.getElementById('availableRidesContainer');
+
+                if (data.rides && data.rides.length > 0) {
+                    container.innerHTML = data.rides.map(ride => {
+                        // Build passenger info
+                        let passengerInfo = `<p><small>Passenger: <strong>${ride.userId.name}</strong> · ${ride.userId.mobileNumber || ''}</small></p>`;
+
+                        // If there's a pending share request, show the second passenger too
+                        let shareBadge = '';
+                        if (ride.isShared && ride.sharedWithUserId) {
+                            shareBadge = `<span style="background:#1a73e8;color:#fff;border-radius:12px;padding:2px 10px;font-size:11px;font-weight:700;">🤝 SHARED</span>`;
+                            passengerInfo += `
+                                <p><small>Co-passenger: <strong>${ride.sharedWithUserId.name}</strong> · ${ride.sharedWithUserId.mobileNumber || ''}</small></p>
+                                <p><small style="color:#1a73e8;">Each pays ₹${ride.sharedFarePerPassenger}</small></p>`;
+                        } else if (ride.sharePending) {
+                            shareBadge = `<span class="share-pending-badge">⏳ Share Pending</span>`;
+                        }
+
+                        return `
+                            <div class="ride-item">
+                                <div class="ride-info">
+                                    <p style="margin:0 0 4px;"><strong>${ride.pickupLocation.address}</strong> ${shareBadge}</p>
+                                    <p style="margin:0 0 4px;">→ ${ride.destinationLocation.address}</p>
+                                    <p><small>Vehicle: ${ride.vehicleType} · Fare: ₹${ride.fare}</small></p>
+                                    ${passengerInfo}
+                                </div>
+                                <button class="btn btn-success btn-sm" onclick="acceptRide('${ride.rideId}')">Accept</button>
+                            </div>`;
+                    }).join('');
+                } else {
+                    container.innerHTML = '<p class="text-muted">No rides available</p>';
+                }
+            } catch(e) { console.error('Error loading rides:', e); }
+        }
+
+        // ═══════════════════════════════════════
+        // ACCEPT RIDE
+        // ═══════════════════════════════════════
+        async function acceptRide(rideId) {
+            try {
+                const res  = await fetch(`${API_BASE}/rides/accept`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json',
+                               'Authorization': `Bearer ${localStorage.getItem('token')}` },
+                    body: JSON.stringify({ rideId, driverId })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    currentRideId = rideId;
+                    displayCurrentRide(data.ride);
+                    document.getElementById('availableRidesContainer').innerHTML =
+                        '<p class="text-muted">Ride accepted. You are in trip mode.</p>';
+                } else { alert(`Error: ${data.message}`); }
+            } catch(e) { alert(`Error accepting ride: ${e.message}`); }
+        }
+
+        // ═══════════════════════════════════════
+        // DISPLAY CURRENT RIDE  — shows both passengers if shared
+        // ═══════════════════════════════════════
+        function displayCurrentRide(ride) {
+            const container = document.getElementById('currentRideContainer');
+            currentRideData = ride;
+
+            // ── Shared Passengers Panel ──
+            let passengersPanel = '';
+            if (ride.isShared && ride.userId && ride.sharedWithUserId) {
+                passengersPanel = `
+                    <div class="shared-passenger-panel">
+                        <h4>🤝 Shared Ride — Two Passengers</h4>
+                        <div class="passenger-card">
+                            <p class="p-name">👤 Passenger 1: ${ride.userId.name || 'N/A'}</p>
+                            <p>📞 ${ride.userId.mobileNumber || 'N/A'}</p>
+                            <p>📍 Pickup: ${ride.pickupLocation.address}</p>
+                        </div>
+                        <div class="passenger-card">
+                            <p class="p-name">👤 Passenger 2: ${ride.sharedWithUserId.name || 'N/A'}</p>
+                            <p>📞 ${ride.sharedWithUserId.mobileNumber || 'N/A'}</p>
+                            ${ride.sharedPassengerPickup && ride.sharedPassengerPickup.address
+                                ? `<p>📍 Pickup: ${ride.sharedPassengerPickup.address}</p>` : ''}
+                        </div>
+                        <div class="shared-fare-note">
+                            <p>Each passenger pays</p>
+                            <div class="total">₹${ride.sharedFarePerPassenger || ride.fare}</div>
+                            <p style="font-size:11px;margin-top:4px;opacity:.8;">Collect from each separately</p>
+                        </div>
+                    </div>`;
+            } else if (ride.sharePending) {
+                passengersPanel = `
+                    <div style="background:#fff8e1;border:1px solid #ffc107;border-radius:8px;padding:12px;margin-top:12px;">
+                        <p style="margin:0;color:#856404;font-size:13px;">
+                            ⏳ <strong>Share request pending</strong> — waiting for Passenger 1 to decide.
+                            <br>This ride may become a shared ride.
+                        </p>
+                    </div>`;
+            }
+
+            // ── End Ride HTML ──
+            let endRideHTML = '';
+            if (ride.status === 'started') {
+                const displayFare = ride.isShared
+                    ? `<div style="font-size:13px;color:#999;margin-bottom:4px;">Per Passenger</div>
+                       <div style="font-size:38px;font-weight:bold;color:#28a745;">₹${ride.sharedFarePerPassenger || ride.fare}</div>
+                       <div style="font-size:12px;color:#888;margin-top:4px;">Collect ₹${ride.sharedFarePerPassenger||ride.fare} from each of 2 passengers</div>`
+                    : `<div style="font-size:42px;font-weight:bold;color:#28a745;">₹${ride.fare}</div>`;
+
+                endRideHTML = `
+                    <div class="ride-fare-section" style="margin-top:20px;padding:20px;
+                         background:linear-gradient(135deg,#28a745,#20c997);border-radius:12px;
+                         border:3px solid #1e7e34;box-shadow:0 4px 15px rgba(40,167,69,.3);">
+                        <div style="text-align:center;margin-bottom:20px;">
+                            <h3 style="margin:0;color:#fff;font-size:18px;">✅ Ready to Collect Payment</h3>
+                        </div>
+                        <div style="background:#fff;border-radius:8px;padding:20px;margin-bottom:20px;text-align:center;">
+                            <p style="color:#666;margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:1px;font-weight:bold;">
+                                ${ride.isShared ? 'Fare Per Passenger' : 'Total Fare'}
+                            </p>
+                            ${displayFare}
+                            <div style="border-top:1px solid #eee;margin-top:15px;padding-top:15px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                                <div>
+                                    <p style="color:#999;margin:0;font-size:12px;">Distance</p>
+                                    <p style="color:#333;margin:5px 0;font-size:16px;font-weight:bold;">${ride.distance} km</p>
+                                </div>
+                                <div>
+                                    <p style="color:#999;margin:0;font-size:12px;">Time</p>
+                                    <p style="color:#333;margin:5px 0;font-size:16px;font-weight:bold;">${ride.estimatedTime} min</p>
+                                </div>
+                            </div>
+                        </div>
+                        <button class="btn btn-success" onclick="handleEndRide()"
+                            style="width:100%;padding:15px;font-size:18px;background:#1e7e34;
+                                   border:none;color:#fff;font-weight:bold;border-radius:8px;cursor:pointer;">
+                            🏁 END RIDE SUCCESSFULLY
+                        </button>
+                    </div>`;
+            }
+
+            container.innerHTML = `
+                <div class="ride-details">
+                    <p><strong>Ride ID:</strong> ${ride.rideId}
+                        ${ride.isShared ? '<span style="background:#1a73e8;color:#fff;border-radius:12px;padding:2px 10px;font-size:11px;font-weight:700;margin-left:8px;">🤝 SHARED</span>' : ''}
+                    </p>
+                    <p><strong>Pickup:</strong> ${ride.pickupLocation.address}</p>
+                    <p><strong>Destination:</strong> ${ride.destinationLocation.address}</p>
+                    <p><strong>Distance:</strong> ${ride.distance} km</p>
+                    <p><strong>Estimated Time:</strong> ${ride.estimatedTime} minutes</p>
+                    <p><strong>Fare:</strong> ${ride.isShared ? `₹${ride.sharedFarePerPassenger} per passenger` : `₹${ride.fare}`}</p>
+                    <p><strong>Status:</strong> <span class="status-badge status-${ride.status}">${ride.status.toUpperCase()}</span></p>
+                    ${passengersPanel}
+                    <div class="ride-actions" style="margin-top:14px;">
+                        ${ride.status === 'accepted' ? `<button class="btn btn-primary btn-sm" onclick="startRide('${ride.rideId}')">Start Ride</button>` : ''}
+                        <button class="btn btn-danger btn-sm" onclick="cancelRide('${ride.rideId}')">Cancel</button>
+                    </div>
+                </div>
+                ${endRideHTML}`;
+
+            if (ride.routeCoordinates && ride.routeCoordinates.length > 0) drawDriverRoute(ride);
+            if (ride.directions && ride.directions.length > 0) displayDirections(ride.directions);
+        }
+
+        // ═══════════════════════════════════════
+        // RIDE ACTIONS
+        // ═══════════════════════════════════════
+        async function handleEndRide() {
+            if (!currentRideData) { alert('No active ride'); return; }
+            showEndRideModal(currentRideData.rideId);
+        }
+
+        async function startRide(rideId) {
+            try {
+                const res  = await fetch(`${API_BASE}/rides/start`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json',
+                               'Authorization': `Bearer ${localStorage.getItem('token')}` },
+                    body: JSON.stringify({ rideId })
+                });
+                const data = await res.json();
+                if (res.ok) { alert('Ride started!'); await fetchAndDisplayCurrentRide(rideId); }
+                else { alert(`Error: ${data.message}`); }
+            } catch(e) { alert(`Error: ${e.message}`); }
+        }
+
+        async function fetchAndDisplayCurrentRide(rideId) {
+            try {
+                const res  = await fetch(`${API_BASE}/rides/status?rideId=${rideId}`,
+                    { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } });
+                const data = await res.json();
+                if (data.ride) { currentRideId = rideId; displayCurrentRide(data.ride); }
+            } catch(e) { console.error(e); }
+        }
+
+        // ═══════════════════════════════════════
+        // END RIDE MODAL
+        // ═══════════════════════════════════════
+        function showEndRideModal(rideId) {
+            if (!currentRideData) return;
+            const ride = currentRideData;
+            const isShared = ride.isShared;
+            const baseFare = isShared ? (ride.sharedFarePerPassenger || ride.fare) : ride.fare;
+
+            const modal = document.createElement('div');
+            modal.id = 'endRideModal';
+            modal.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.6);
+                display:flex;justify-content:center;align-items:center;z-index:2000;`;
+            modal.innerHTML = `
+                <div style="background:#fff;border-radius:15px;padding:30px;max-width:500px;width:95%;
+                     box-shadow:0 8px 32px rgba(0,0,0,.3);animation:slideUp .3s ease-out;">
+                    <style>@keyframes slideUp{from{transform:translateY(50px);opacity:0}to{transform:translateY(0);opacity:1}}</style>
+                    <h2 style="margin:0 0 20px;color:#333;text-align:center;">🏁 End Ride</h2>
+                    <div style="background:#f9f9f9;padding:15px;border-radius:8px;margin-bottom:20px;">
+                        <p style="margin:0 0 8px;color:#666;"><strong>Ride ID:</strong> ${ride.rideId}</p>
+                        <p style="margin:0 0 8px;color:#666;"><strong>Distance:</strong> ${ride.distance} km</p>
+                        <p style="margin:0 0 8px;color:#666;"><strong>Estimated Time:</strong> ${ride.estimatedTime} min</p>
+                        ${isShared
+                            ? `<p style="margin:0;color:#1a73e8;font-weight:bold;">🤝 Shared Ride — collect ₹${baseFare} from each of 2 passengers</p>`
+                            : `<p style="margin:0;color:#666;"><strong>Base Fare:</strong> ₹${baseFare}</p>`}
+                    </div>
+                    <div style="margin-bottom:20px;">
+                        <label style="display:block;margin-bottom:8px;color:#333;font-weight:bold;">
+                            ${isShared ? 'Fare per Passenger (₹)' : 'Final Fare Amount (₹)'}
+                        </label>
+                        <input type="number" id="fareInput" value="${baseFare}" min="0"
+                            style="width:100%;padding:12px;border:2px solid #ddd;border-radius:5px;font-size:16px;font-weight:bold;">
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                        <button onclick="closeEndRideModal()"
+                            style="padding:12px;background:#ddd;border:none;border-radius:5px;font-size:16px;font-weight:bold;cursor:pointer;">
+                            Cancel
+                        </button>
+                        <button onclick="confirmEndRide('${rideId}')"
+                            style="padding:12px;background:#28a745;color:#fff;border:none;border-radius:5px;font-size:16px;font-weight:bold;cursor:pointer;">
+                            Confirm End Ride
+                        </button>
+                    </div>
+                </div>`;
+            document.body.appendChild(modal);
+        }
+
+        function closeEndRideModal() {
+            const m = document.getElementById('endRideModal');
+            if (m) m.remove();
+        }
+
+        async function confirmEndRide(rideId) {
+            const fare = parseFloat(document.getElementById('fareInput').value);
+            if (!fare || fare < 0) { alert('Please enter a valid fare amount'); return; }
+            closeEndRideModal();
+            await endRidePayment(rideId, fare);
+        }
+
+        async function endRidePayment(rideId, fare) {
+            try {
+                const res  = await fetch(`${API_BASE}/rides/complete`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json',
+                               'Authorization': `Bearer ${localStorage.getItem('token')}` },
+                    body: JSON.stringify({ rideId, fare: parseFloat(fare) })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    const cr = data.ride;
+                    showRideSummaryModal(cr.rideId, cr.fare, currentRideData.pickupLocation.address,
+                        currentRideData.destinationLocation.address, cr.distance, cr.actualTime, cr.isShared);
+                    currentRideId = null; currentRideData = null;
+                    document.getElementById('currentRideContainer').innerHTML = '<p class="text-muted">No active ride</p>';
+                    document.getElementById('directionsContainer').innerHTML  = '<p class="text-muted">No directions</p>';
+                    document.getElementById('driverRouteInfo').innerHTML = '';
+                    if (dRouteLayer)   dRouteLayer.remove();
+                    if (dPickupMarker) dPickupMarker.remove();
+                    if (dDestMarker)   dDestMarker.remove();
+                    setTimeout(() => loadRideHistory(), 2000);
+                    if (isOnline) loadAvailableRides();
+                } else { alert(`Error: ${data.message}`); }
+            } catch(e) { alert(`Error: ${e.message}`); }
+        }
+
+        // ═══════════════════════════════════════
+        // RIDE SUMMARY MODAL
+        // ═══════════════════════════════════════
+        function showRideSummaryModal(rideId, fare, pickup, dest, distance, time, isShared) {
+            const modal = document.createElement('div');
+            modal.id = 'rideSummaryModal';
+            modal.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);
+                display:flex;justify-content:center;align-items:center;z-index:1000;`;
+            const now = new Date();
+            const sharedNote = isShared
+                ? `<div style="background:#e3f2fd;border-left:4px solid #1a73e8;padding:10px 14px;border-radius:4px;margin-bottom:14px;">
+                       <p style="margin:0;color:#1a237e;font-size:13px;font-weight:bold;">🤝 Shared Ride — Collect ₹${fare} from each passenger</p>
+                   </div>` : '';
+            modal.innerHTML = `
+                <div style="background:#fff;border-radius:12px;padding:30px;max-width:500px;width:90%;
+                     box-shadow:0 4px 20px rgba(0,0,0,.3);animation:slideUp .3s ease-out;">
+                    <style>@keyframes slideUp{from{transform:translateY(30px);opacity:0}to{transform:translateY(0);opacity:1}}</style>
+                    <div style="text-align:center;margin-bottom:25px;">
+                        <div style="font-size:50px;margin-bottom:10px;">✅</div>
+                        <h2 style="margin:0;color:#28a745;">Ride Completed!</h2>
+                        <p style="color:#666;font-size:14px;">
+                            ${now.toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'})} at
+                            ${now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+                        </p>
+                    </div>
+                    ${sharedNote}
+                    <div style="background:#f8f9fa;border-radius:8px;padding:20px;margin-bottom:20px;">
+                        <p style="margin:0 0 8px;font-size:14px;">📍 <strong>Pickup</strong></p>
+                        <p style="margin:0 0 14px;color:#666;font-size:13px;">${pickup}</p>
+                        <p style="margin:0 0 8px;font-size:14px;">📌 <strong>Destination</strong></p>
+                        <p style="margin:0;color:#666;font-size:13px;">${dest}</p>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:15px;margin-bottom:20px;text-align:center;">
+                        <div style="border:1px solid #ddd;border-radius:8px;padding:14px;">
+                            <p style="margin:0;color:#999;font-size:11px;text-transform:uppercase;font-weight:bold;">Distance</p>
+                            <p style="margin:8px 0;font-size:20px;font-weight:bold;color:#3388ff;">${distance}</p>
+                            <p style="margin:0;color:#999;font-size:11px;">km</p>
+                        </div>
+                        <div style="border:1px solid #ddd;border-radius:8px;padding:14px;">
+                            <p style="margin:0;color:#999;font-size:11px;text-transform:uppercase;font-weight:bold;">Time</p>
+                            <p style="margin:8px 0;font-size:20px;font-weight:bold;color:#3388ff;">${time}</p>
+                            <p style="margin:0;color:#999;font-size:11px;">min</p>
+                        </div>
+                        <div style="border:1px solid #ddd;border-radius:8px;padding:14px;">
+                            <p style="margin:0;color:#999;font-size:11px;text-transform:uppercase;font-weight:bold;">${isShared?'Per Pax':'Fare'}</p>
+                            <p style="margin:8px 0;font-size:20px;font-weight:bold;color:#28a745;">₹${fare}</p>
+                            <p style="margin:0;color:#999;font-size:11px;">${isShared?'×2 passengers':'amount'}</p>
+                        </div>
+                    </div>
+                    <div style="background:#e8f5e9;border-left:4px solid #28a745;padding:12px;border-radius:4px;margin-bottom:20px;">
+                        <p style="margin:0;color:#2e7d32;font-size:14px;font-weight:bold;">✓ Payment Received</p>
+                        <p style="margin:5px 0;color:#558b2f;font-size:12px;">Thank you for completing the ride safely!</p>
+                    </div>
+                    <button onclick="closeRideSummaryModal()"
+                        style="width:100%;padding:12px;background:#3388ff;color:#fff;border:none;border-radius:5px;font-size:16px;font-weight:bold;cursor:pointer;">
+                        ✓ Done
+                    </button>
+                </div>`;
+            document.body.appendChild(modal);
+        }
+
+        function closeRideSummaryModal() {
+            const m = document.getElementById('rideSummaryModal');
+            if (m) { m.style.animation = 'slideDown .3s ease-out'; setTimeout(() => m.remove(), 300); }
+        }
+
+        // ═══════════════════════════════════════
+        // CANCEL RIDE
+        // ═══════════════════════════════════════
+        async function cancelRide(rideId) {
+            if (!confirm('Are you sure you want to cancel this ride?')) return;
+            try {
+                const res  = await fetch(`${API_BASE}/rides/cancel`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json',
+                               'Authorization': `Bearer ${localStorage.getItem('token')}` },
+                    body: JSON.stringify({ rideId })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    currentRideId = null;
+                    document.getElementById('currentRideContainer').innerHTML = '<p class="text-muted">No active ride</p>';
+                    document.getElementById('directionsContainer').innerHTML  = '<p class="text-muted">No directions</p>';
+                    document.getElementById('driverRouteInfo').innerHTML = '';
+                    if (dRouteLayer)   dRouteLayer.remove();
+                    if (dPickupMarker) dPickupMarker.remove();
+                    if (dDestMarker)   dDestMarker.remove();
+                    alert('Ride cancelled successfully');
+                    setTimeout(() => loadRideHistory(), 500);
+                    if (isOnline) loadAvailableRides();
+                } else { alert(`Error: ${data.message}`); }
+            } catch(e) { alert(`Error: ${e.message}`); }
+        }
+
+        // ═══════════════════════════════════════
+        // RIDE HISTORY
+        // ═══════════════════════════════════════
+        async function loadRideHistory() {
+            try {
+                const res  = await fetch(`${API_BASE}/rides/driver?driverId=${driverId}`,
+                    { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } });
+                const data = await res.json();
+                const container = document.getElementById('rideHistoryContainer');
+
+                if (data.rides && data.rides.length > 0) {
+                    const hist = data.rides.filter(r => r.status === 'completed' || r.status === 'cancelled');
+                    container.innerHTML = hist.length > 0
+                        ? hist.map(ride => `
+                            <div class="ride-item">
+                                <div class="ride-info">
+                                    <p><strong>${ride.rideId}</strong>
+                                        ${ride.isShared ? '<span style="color:#1a73e8;font-size:12px;">🤝 Shared</span>' : ''}
+                                    </p>
+                                    <p>${ride.pickupLocation.address} → ${ride.destinationLocation.address}</p>
+                                    <p><small>${new Date(ride.requestedAt).toLocaleString()}</small></p>
+                                </div>
+                                <div class="ride-status">
+                                    <span class="status-badge ${ride.status === 'cancelled' ? 'status-cancelled' : 'status-completed'}">
+                                        ${ride.status === 'cancelled' ? 'Cancelled' : 'Completed'}
+                                    </span>
+                                    ${ride.fare ? `<p class="fare">₹${ride.fare}</p>` : ''}
+                                </div>
+                            </div>`).join('')
+                        : '<p class="text-muted">No ride history</p>';
+                } else {
+                    container.innerHTML = '<p class="text-muted">No rides yet</p>';
+                }
+            } catch(e) { console.error('Error loading ride history:', e); }
+        }
+
+        function logout() { localStorage.clear(); window.location.href = 'index.html'; }
+
+        initDashboard();
+    </script>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        // ═══════════════════════════════════════
+        // DRIVER MAP
+        // ═══════════════════════════════════════
+        let driverMap, dPickupMarker, dDestMarker, dRouteLayer;
+
+        function initDriverMap() {
+            if (!document.getElementById('driverMap')) return;
+            driverMap = L.map('driverMap').setView([22.3, 71.7], 5);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(driverMap);
+        }
+
+        function drawDriverRoute(ride) {
+            if (!ride || !ride.pickupLocation || !ride.destinationLocation) return;
+            const pickup = ride.pickupLocation, dest = ride.destinationLocation;
+            if (dPickupMarker) dPickupMarker.remove();
+            if (dDestMarker)   dDestMarker.remove();
+            if (dRouteLayer)   dRouteLayer.remove();
+
+            const greenIcon = L.icon({
+                iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
+                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                iconSize: [25,41], iconAnchor: [12,41], popupAnchor: [1,-34], shadowSize: [41,41]
+            });
+            const redIcon = L.icon({
+                iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                iconSize: [25,41], iconAnchor: [12,41], popupAnchor: [1,-34], shadowSize: [41,41]
+            });
+
+            dPickupMarker = L.marker([pickup.latitude, pickup.longitude], { icon: greenIcon })
+                .addTo(driverMap).bindPopup('Pickup: ' + pickup.address);
+            dDestMarker   = L.marker([dest.latitude, dest.longitude], { icon: redIcon })
+                .addTo(driverMap).bindPopup('Destination: ' + dest.address);
+
+            // Add second-passenger pickup marker if shared
+            if (ride.isShared && ride.sharedPassengerPickup && ride.sharedPassengerPickup.latitude) {
+                const blueIcon = L.icon({
+                    iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+                    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                    iconSize: [25,41], iconAnchor: [12,41], popupAnchor: [1,-34], shadowSize: [41,41]
+                });
+                L.marker([ride.sharedPassengerPickup.latitude, ride.sharedPassengerPickup.longitude], { icon: blueIcon })
+                    .addTo(driverMap)
+                    .bindPopup('Passenger 2 Pickup: ' + (ride.sharedPassengerPickup.address || ''));
+            }
+
+            if (ride.routeCoordinates && ride.routeCoordinates.length > 0) {
+                const coords = ride.routeCoordinates.map(c => [c.latitude, c.longitude]);
+                dRouteLayer = L.polyline(coords, { color: '#3388ff', weight: 5 }).addTo(driverMap);
+            } else {
+                dRouteLayer = L.polyline([[pickup.latitude, pickup.longitude],[dest.latitude, dest.longitude]],
+                    { color: '#3388ff', weight: 4, dashArray: '6 6' }).addTo(driverMap);
+            }
+
+            driverMap.fitBounds([[pickup.latitude,pickup.longitude],[dest.latitude,dest.longitude]], { padding:[50,50] });
+
+            const fareText = ride.isShared
+                ? `₹${ride.sharedFarePerPassenger||ride.fare} per passenger`
+                : `₹${ride.fare}`;
+            document.getElementById('driverRouteInfo').innerHTML =
+                `<strong>Distance:</strong> ${ride.distance} km &bull; <strong>ETA:</strong> ${ride.estimatedTime} min &bull; <strong>Fare:</strong> ${fareText}`;
+        }
+
+        function displayDirections(directions) {
+            const container = document.getElementById('directionsContainer');
+            if (!directions || !directions.length) {
+                container.innerHTML = '<p class="text-muted">No turn-by-turn directions available</p>'; return;
+            }
+            container.innerHTML = '<div class="directions-steps">' + directions.map((d, i) => `
+                <div class="direction-step" style="padding:10px;border-bottom:1px solid #eee;">
+                    <p style="margin:0;font-weight:bold;">Step ${i+1}</p>
+                    <p style="margin:5px 0;color:#333;">${d.instruction || 'Continue'}</p>
+                    <p style="margin:5px 0;font-size:.9em;color:#666;">
+                        📍 ${d.distance ? (d.distance/1000).toFixed(2) : 0} km &bull;
+                        ⏱️ ~${d.duration ? Math.round(d.duration/60) : 0} min
+                    </p>
+                </div>`).join('') + '</div>';
+        }
+
+        document.addEventListener('DOMContentLoaded', () => { initDriverMap(); });
+    </script>
+</body>
+</html>

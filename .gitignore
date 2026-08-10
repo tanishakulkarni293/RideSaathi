@@ -1,0 +1,74 @@
+# Ridesathi - Git Ignore File
+
+node_modules/
+.env
+.env.local
+*.log
+.DS_Store
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+
+# OS files
+.DS_Store
+.AppleDouble
+.LSOverride
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# MongoDB
+.mongo/
+data/
+db/
+
+# Build and dist
+dist/
+build/
+*.min.js
+*.min.css
+
+# Testing
+coverage/
+.nyc_output/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Documentation build files
+docs/build/
+site/
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Miscellaneous
+.cache/
+.env.example (use this to track example env vars)
+config.json

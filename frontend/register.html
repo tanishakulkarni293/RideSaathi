@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - Ridesathi</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Navigation -->
+        <nav class="navbar">
+            <div class="nav-brand">
+                <h1>🚕 Ridesathi</h1>
+            </div>
+            <div class="nav-links">
+                <a href="index.html" class="nav-link">Home</a>
+                <a href="login.html" class="nav-link">Login</a>
+                <a href="register.html" class="nav-link active">Register</a>
+            </div>
+        </nav>
+
+        <!-- Register Section -->
+        <section class="auth-section">
+            <div class="auth-container">
+                <h2>Register with Ridesathi</h2>
+                <p class="auth-subtitle">Create your account</p>
+
+                <!-- Registration Type Tabs -->
+                <div class="tabs">
+                    <button class="tab-btn active" data-tab="user-register">Register as User</button>
+                    <button class="tab-btn" data-tab="driver-register">Register as Driver</button>
+                </div>
+
+                <!-- User Registration Form -->
+                <div id="user-register" class="tab-content active">
+                    <form id="userRegisterForm" class="form">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="userName">Full Name</label>
+                                <input type="text" id="userName" name="name" required placeholder="Enter your full name">
+                            </div>
+                            <div class="form-group">
+                                <label for="userAge">Age</label>
+                                <input type="number" id="userAge" name="age" required placeholder="Enter your age" min="18">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="userEmail">Email Address</label>
+                            <input type="email" id="userEmail" name="email" required placeholder="Enter your email">
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="userMobile">Mobile Number</label>
+                                <input type="tel" id="userMobile" name="mobile" required placeholder="Enter your mobile number">
+                            </div>
+                            <div class="form-group">
+                                <label for="userGender">Gender</label>
+                                <select id="userGender" name="gender" required>
+                                    <option value="">Select Gender</option>
+                                    <option value="Male">Male</option>
+                                    <option value="Female">Female</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="userPassword">Password</label>
+                            <input type="password" id="userPassword" name="password" required placeholder="Enter your password" minlength="6">
+                        </div>
+
+                        <button type="submit" class="btn btn-primary btn-block">Register as User</button>
+                    </form>
+                    <p class="auth-link">Already have an account? <a href="login.html">Login here</a></p>
+                </div>
+
+                <!-- Driver Registration Form -->
+                <div id="driver-register" class="tab-content">
+                    <form id="driverRegisterForm" class="form">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="driverName">Full Name</label>
+                                <input type="text" id="driverName" name="name" required placeholder="Enter your full name">
+                            </div>
+                            <div class="form-group">
+                                <label for="driverAge">Age</label>
+                                <input type="number" id="driverAge" name="age" required placeholder="Enter your age" min="21">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="driverEmail">Email Address</label>
+                            <input type="email" id="driverEmail" name="email" required placeholder="Enter your email">
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="driverMobile">Mobile Number</label>
+                                <input type="tel" id="driverMobile" name="mobile" required placeholder="Enter your mobile number">
+                            </div>
+                            <div class="form-group">
+                                <label for="driverGender">Gender</label>
+                                <select id="driverGender" name="gender" required>
+                                    <option value="">Select Gender</option>
+                                    <option value="Male">Male</option>
+                                    <option value="Female">Female</option>
+                                    <option value="Other">Other</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="vehicleType">Vehicle Type</label>
+                                <select id="vehicleType" name="vehicleType" required>
+                                    <option value="">Select Vehicle Type</option>
+                                    <option value="Auto">Auto (3-wheeler)</option>
+                                    <option value="Car">Car (4-wheeler)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="vehicleNumber">Vehicle Number</label>
+                                <input type="text" id="vehicleNumber" name="vehicleNumber" required placeholder="e.g., MH01AB1234" style="text-transform: uppercase;">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="driverPassword">Password</label>
+                            <input type="password" id="driverPassword" name="password" required placeholder="Enter your password" minlength="6">
+                        </div>
+
+                        <button type="submit" class="btn btn-primary btn-block">Register as Driver</button>
+                    </form>
+                    <p class="auth-link">Already have an account? <a href="login.html">Login here</a></p>
+                </div>
+
+                <!-- Status Messages -->
+                <div id="registerMessage" class="message"></div>
+            </div>
+        </section>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>&copy; 2026 Ridesathi. All rights reserved.</p>
+        </footer>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:5000/api';
+
+        // Tab switching functionality
+        const tabButtons = document.querySelectorAll('.tab-btn');
+        const tabContents = document.querySelectorAll('.tab-content');
+
+        tabButtons.forEach(button => {
+            button.addEventListener('click', () => {
+                const tabName = button.getAttribute('data-tab');
+                
+                tabButtons.forEach(btn => btn.classList.remove('active'));
+                tabContents.forEach(content => content.classList.remove('active'));
+                
+                button.classList.add('active');
+                document.getElementById(tabName).classList.add('active');
+            });
+        });
+
+        // User Registration Handler
+        document.getElementById('userRegisterForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = {
+                name: document.getElementById('userName').value,
+                email: document.getElementById('userEmail').value,
+                password: document.getElementById('userPassword').value,
+                age: parseInt(document.getElementById('userAge').value),
+                gender: document.getElementById('userGender').value,
+                mobileNumber: document.getElementById('userMobile').value
+            };
+
+            const messageDiv = document.getElementById('registerMessage');
+
+            try {
+                const response = await fetch(`${API_BASE}/auth/register/user`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    localStorage.setItem('token', data.token);
+                    localStorage.setItem('userId', data.user.id);
+                    localStorage.setItem('userName', data.user.name);
+                    localStorage.setItem('userType', 'user');
+                    
+                    messageDiv.innerHTML = '<div class="alert alert-success">Registration successful! Redirecting...</div>';
+                    setTimeout(() => {
+                        window.location.href = 'user-dashboard.html';
+                    }, 1500);
+                } else {
+                    messageDiv.innerHTML = `<div class="alert alert-error">${data.message}</div>`;
+                }
+            } catch (error) {
+                messageDiv.innerHTML = `<div class="alert alert-error">Error: ${error.message}</div>`;
+            }
+        });
+
+        // Driver Registration Handler
+        document.getElementById('driverRegisterForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const formData = {
+                name: document.getElementById('driverName').value,
+                email: document.getElementById('driverEmail').value,
+                password: document.getElementById('driverPassword').value,
+                age: parseInt(document.getElementById('driverAge').value),
+                gender: document.getElementById('driverGender').value,
+                mobileNumber: document.getElementById('driverMobile').value,
+                vehicleType: document.getElementById('vehicleType').value,
+                vehicleNumber: document.getElementById('vehicleNumber').value
+            };
+
+            const messageDiv = document.getElementById('registerMessage');
+
+            try {
+                const response = await fetch(`${API_BASE}/auth/register/driver`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    localStorage.setItem('token', data.token);
+                    localStorage.setItem('driverId', data.driver.id);
+                    localStorage.setItem('driverName', data.driver.name);
+                    localStorage.setItem('userType', 'driver');
+                    
+                    messageDiv.innerHTML = '<div class="alert alert-success">Registration successful! Redirecting...</div>';
+                    setTimeout(() => {
+                        window.location.href = 'driver-dashboard.html';
+                    }, 1500);
+                } else {
+                    messageDiv.innerHTML = `<div class="alert alert-error">${data.message}</div>`;
+                }
+            } catch (error) {
+                messageDiv.innerHTML = `<div class="alert alert-error">Error: ${error.message}</div>`;
+            }
+        });
+    </script>
+</body>
+</html>

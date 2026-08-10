@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Dashboard - Ridesathi</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        /* ── Ride-Share Modal Styles ── */
+        .share-modal-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.55); display: flex;
+            justify-content: center; align-items: center; z-index: 4000;
+        }
+        .share-modal {
+            background: #fff; border-radius: 16px; padding: 30px;
+            max-width: 480px; width: 95%;
+            box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+            animation: slideUp 0.3s ease-out;
+        }
+        @keyframes slideUp {
+            from { transform: translateY(40px); opacity: 0; }
+            to   { transform: translateY(0);   opacity: 1; }
+        }
+        .share-badge {
+            display: inline-block; background: #e8f4fd; color: #1a73e8;
+            border-radius: 20px; padding: 4px 12px; font-size: 13px; font-weight: 600;
+            margin-bottom: 14px;
+        }
+        .share-fare-row {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+            margin: 18px 0;
+        }
+        .share-fare-box {
+            text-align: center; padding: 14px 10px; border-radius: 10px;
+            border: 2px solid #e0e0e0;
+        }
+        .share-fare-box.original { border-color: #f0a500; background: #fff8e1; }
+        .share-fare-box.split    { border-color: #28a745; background: #e8f5e9; }
+        .share-fare-box .label   { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: .5px; }
+        .share-fare-box .amount  { font-size: 30px; font-weight: 800; margin: 6px 0 0; }
+        .share-fare-box.original .amount { color: #f0a500; }
+        .share-fare-box.split    .amount { color: #28a745; }
+        .share-btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px; }
+        .btn-share-accept { background: #28a745; color: #fff; border: none; border-radius: 8px;
+            padding: 13px; font-size: 15px; font-weight: 700; cursor: pointer; }
+        .btn-share-decline { background: #f5f5f5; color: #555; border: 1px solid #ddd; border-radius: 8px;
+            padding: 13px; font-size: 15px; font-weight: 600; cursor: pointer; }
+        .btn-share-accept:hover  { background: #218838; }
+        .btn-share-decline:hover { background: #e9e9e9; }
+
+        /* ── Shared Ride Banner on Active Ride ── */
+        .shared-ride-banner {
+            background: linear-gradient(135deg, #1a73e8, #0d47a1);
+            color: #fff; border-radius: 10px; padding: 14px 18px; margin-top: 14px;
+        }
+        .shared-ride-banner h4 { margin: 0 0 8px; font-size: 15px; }
+        .shared-ride-banner p  { margin: 4px 0; font-size: 13px; opacity: .9; }
+        .split-fare-pill {
+            display: inline-block; background: #fff; color: #1a73e8;
+            border-radius: 20px; padding: 4px 14px; font-weight: 800; font-size: 18px;
+            margin-top: 6px;
+        }
+
+        /* ── Waiting pulse for User2 ── */
+        .waiting-share-banner {
+            background: #fff3cd; border: 1px solid #ffc107; border-radius: 10px;
+            padding: 14px 18px; margin-top: 12px; text-align: center;
+        }
+        .waiting-share-banner p { margin: 4px 0; color: #856404; font-size: 14px; }
+        .pulse-dot {
+            display: inline-block; width: 10px; height: 10px;
+            border-radius: 50%; background: #ffc107; margin-right: 6px;
+            animation: pulse 1.2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50%       { opacity: .4; transform: scale(.7); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Navigation -->
+        <nav class="navbar">
+            <div class="nav-brand"><h1>🚕 Ridesathi</h1></div>
+            <div class="nav-links">
+                <span class="user-info">Welcome, <span id="userName"></span></span>
+                <a href="#" class="nav-link" onclick="logout(); return false;">Logout</a>
+            </div>
+        </nav>
+
+        <section class="dashboard">
+            <h2>User Dashboard</h2>
+
+            <!-- Booking Section -->
+            <section class="dashboard">
+                <h3>📍 Book a Ride</h3>
+                <div class="dashboard-card">
+                    <form class="form" id="rideForm" onsubmit="return false;">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="pickup">Pickup Location</label>
+                                <input type="text" id="pickup" placeholder="Enter pickup location" autocomplete="off">
+                                <div class="autocomplete-list" id="pickup-list" aria-hidden="true"></div>
+                            </div>
+                            <div class="form-group">
+                                <label for="destination">Destination</label>
+                                <input type="text" id="destination" placeholder="Enter destination" autocomplete="off">
+                                <div class="autocomplete-list" id="destination-list" aria-hidden="true"></div>
+                            </div>
+                            <div class="form-group">
+                                <label for="vehicleType">Select Vehicle Type</label>
+                                <select id="vehicleType" name="vehicleType" required>
+                                    <option value="">Select Vehicle Type</option>
+                                    <option value="Auto">Auto (3-wheeler)</option>
+                                    <option value="Car">Car (4-wheeler)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div>
+                                <button class="btn btn-primary" id="showRouteBtn" type="button">Show Route</button>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-block" id="bookRideBtn">Book Ride Now</button>
+                        </div>
+                        <div id="routeInfo" class="text-right mt-10" style="display:none;">
+                            <p><strong>Distance:</strong> <span id="routeDistance">0</span> km</p>
+                            <p><strong>Estimated Time:</strong> <span id="routeTime">0</span> minutes</p>
+                            <p><strong>Estimated Fare:</strong> ₹<span id="routeFare">0</span></p>
+                        </div>
+                    </form>
+                    <div id="map" class="map-container mt-20" style="height:400px;"></div>
+                    <div id="bookMessage" class="message"></div>
+                </div>
+            </section>
+
+            <!-- Active Ride Section -->
+            <div class="dashboard-card">
+                <h3>🚕 Active Ride</h3>
+                <div id="activeRideContainer" class="ride-container">
+                    <p class="text-muted">No active ride</p>
+                </div>
+            </div>
+
+            <!-- Ride History Section -->
+            <div class="dashboard-card">
+                <h3>📋 Your Ride History</h3>
+                <div id="rideHistoryContainer" class="rides-list">
+                    <p class="text-muted">No rides yet</p>
+                </div>
+            </div>
+        </section>
+
+        <footer class="footer">
+            <p>&copy; 2026 Ridesathi. All rights reserved.</p>
+        </footer>
+    </div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        const API_BASE = 'http://localhost:5000/api';
+        let map, pickupMarker, destMarker, routeLayer;
+        let pickupLocation = null, destinationLocation = null, currentRoute = null;
+        let userId, userName;
+
+        // ── Track share-prompt state so we don't re-show it on poll ──
+        let sharePromptShownForRide = null;
+
+        // ═══════════════════════════════════════════
+        // MAP
+        // ═══════════════════════════════════════════
+        function initMap() {
+            if (!document.getElementById('map')) return;
+            map = L.map('map').setView([22.3, 71.7], 5);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
+            }).addTo(map);
+        }
+
+        function debounce(fn, wait) {
+            let t;
+            return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), wait); };
+        }
+
+        async function searchNominatim(q) {
+            if (!q || q.length < 1) return [];
+            try {
+                const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=5&q=${encodeURIComponent(q)}`,
+                    { headers: { 'Accept-Language': 'en' } });
+                return res.ok ? res.json() : [];
+            } catch { return []; }
+        }
+
+        function renderSuggestions(container, results, onSelect) {
+            container.innerHTML = '';
+            container.style.display = results.length ? 'block' : 'none';
+            results.forEach(r => {
+                const div = document.createElement('div');
+                div.className = 'autocomplete-item';
+                div.textContent = r.display_name;
+                div.addEventListener('click', () => onSelect(r));
+                container.appendChild(div);
+            });
+        }
+
+        function setPickup(r) {
+            pickupLocation = { latitude: parseFloat(r.lat), longitude: parseFloat(r.lon), address: r.display_name };
+            document.getElementById('pickup').value = r.display_name;
+            document.getElementById('pickup-list').style.display = 'none';
+            placeMarker('pickup');
+        }
+
+        function setDestination(r) {
+            destinationLocation = { latitude: parseFloat(r.lat), longitude: parseFloat(r.lon), address: r.display_name };
+            document.getElementById('destination').value = r.display_name;
+            document.getElementById('destination-list').style.display = 'none';
+            placeMarker('destination');
+        }
+
+        function placeMarker(which) {
+            if (!map) return;
+            const greenIcon = L.icon({
+                iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
+                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                iconSize: [25,41], iconAnchor: [12,41], popupAnchor: [1,-34], shadowSize: [41,41]
+            });
+            const redIcon = L.icon({
+                iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+                shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+                iconSize: [25,41], iconAnchor: [12,41], popupAnchor: [1,-34], shadowSize: [41,41]
+            });
+            if (which === 'pickup' && pickupLocation) {
+                if (pickupMarker) pickupMarker.remove();
+                pickupMarker = L.marker([pickupLocation.latitude, pickupLocation.longitude], { icon: greenIcon })
+                    .addTo(map).bindPopup('Pickup: ' + pickupLocation.address);
+                map.panTo([pickupLocation.latitude, pickupLocation.longitude]);
+            }
+            if (which === 'destination' && destinationLocation) {
+                if (destMarker) destMarker.remove();
+                destMarker = L.marker([destinationLocation.latitude, destinationLocation.longitude], { icon: redIcon })
+                    .addTo(map).bindPopup('Destination: ' + destinationLocation.address);
+                map.panTo([destinationLocation.latitude, destinationLocation.longitude]);
+            }
+            if (pickupLocation && destinationLocation)
+                map.fitBounds([[pickupLocation.latitude, pickupLocation.longitude],
+                               [destinationLocation.latitude, destinationLocation.longitude]], { padding: [50,50] });
+        }
+
+        async function computeRoute() {
+            if (!pickupLocation || !destinationLocation) { alert('Please select both pickup and destination'); return; }
+            const a = `${pickupLocation.longitude},${pickupLocation.latitude}`;
+            const b = `${destinationLocation.longitude},${destinationLocation.latitude}`;
+            try {
+                const res  = await fetch(`https://router.project-osrm.org/route/v1/driving/${a};${b}?overview=full&geometries=geojson&steps=true`);
+                const json = await res.json();
+                if (!json.routes || !json.routes.length) { alert('Could not calculate route'); return; }
+                const route = json.routes[0];
+                const coords = route.geometry.coordinates.map(c => [c[1], c[0]]);
+                if (routeLayer) routeLayer.remove();
+                routeLayer = L.polyline(coords, { color: '#ff6b35', weight: 5 }).addTo(map);
+                map.fitBounds([[pickupLocation.latitude,pickupLocation.longitude],
+                               [destinationLocation.latitude,destinationLocation.longitude]], { padding: [50,50] });
+                const km   = (route.distance / 1000).toFixed(2);
+                const mins = Math.round(route.duration / 60);
+                const fare = Math.round(50 + parseFloat(km) * 12 + mins * 2);
+                currentRoute = { distance: parseFloat(km), duration: mins, fare, routeCoordinates: coords };
+                document.getElementById('routeDistance').textContent = km;
+                document.getElementById('routeTime').textContent     = mins;
+                document.getElementById('routeFare').textContent     = fare;
+                document.getElementById('routeInfo').style.display   = 'block';
+            } catch(e) { console.error(e); alert('Error calculating route'); }
+        }
+
+        // ═══════════════════════════════════════════
+        // BOOK RIDE
+        // ═══════════════════════════════════════════
+        async function bookRide(e) {
+            e.preventDefault();
+            if (!pickupLocation || !destinationLocation || !currentRoute) {
+                alert('Please select locations and show route first'); return;
+            }
+            const vehicleType = document.getElementById('vehicleType').value;
+            if (!vehicleType) { alert('Please select a vehicle type'); return; }
+
+            try {
+                const response = await fetch(`${API_BASE}/rides/request`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json',
+                               'Authorization': `Bearer ${localStorage.getItem('token')}` },
+                    body: JSON.stringify({ userId, pickupLocation, destinationLocation, vehicleType })
+                });
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Reset form UI
+                    document.getElementById('rideForm').reset();
+                    document.getElementById('routeInfo').style.display = 'none';
+                    if (routeLayer)    routeLayer.remove();
+                    if (pickupMarker)  pickupMarker.remove();
+                    if (destMarker)    destMarker.remove();
+                    currentRoute = null; pickupLocation = null; destinationLocation = null;
+
+                    // ── SHARE OPTION ──────────────────────────────────────────
+                    if (data.shareOption) {
+                        showShareOfferModal(data.ride.rideId, data.shareOption);
+                    } else {
+                        showMessage('Ride booked! Waiting for driver…', 'success');
+                    }
+                    loadActiveRide();
+                    loadRideHistory();
+                } else {
+                    showMessage('Error: ' + data.message, 'error');
+                }
+            } catch(err) { showMessage('Error booking ride: ' + err.message, 'error'); }
+        }
+
+        // ═══════════════════════════════════════════
+        // SHARE OFFER MODAL  (shown to User2 immediately after booking)
+        // ═══════════════════════════════════════════
+        function showShareOfferModal(myRideId, shareOption) {
+            sharePromptShownForRide = myRideId;
+            const overlay = document.createElement('div');
+            overlay.id = 'shareOfferModal';
+            overlay.className = 'share-modal-overlay';
+            overlay.innerHTML = `
+                <div class="share-modal">
+                    <span class="share-badge">🤝 Ride Share Available</span>
+                    <h3 style="margin:0 0 8px;color:#1a1a1a;">Someone is going your way!</h3>
+                    <p style="color:#555;font-size:14px;margin:0 0 4px;">
+                        <strong>${shareOption.user1Name}</strong> is also heading to
+                    </p>
+                    <p style="color:#1a73e8;font-size:13px;margin:0 0 14px;font-weight:600;">
+                        📌 ${shareOption.destinationMatch}
+                    </p>
+                    <p style="color:#555;font-size:13px;margin:0;">
+                        If they accept your share request, your fare will be split equally:
+                    </p>
+                    <div class="share-fare-row">
+                        <div class="share-fare-box original">
+                            <div class="label">Original Fare</div>
+                            <div class="amount">₹${shareOption.originalFare}</div>
+                        </div>
+                        <div class="share-fare-box split">
+                            <div class="label">You Pay (Split)</div>
+                            <div class="amount">₹${shareOption.sharedFare}</div>
+                        </div>
+                    </div>
+                    <p style="color:#888;font-size:12px;margin:0 0 4px;">
+                        ℹ️ The other rider will be notified. You save <strong>₹${shareOption.originalFare - shareOption.sharedFare}</strong>!
+                    </p>
+                    <div class="share-btn-row">
+                        <button class="btn-share-decline" onclick="declineShareOffer('${myRideId}','${shareOption.matchingRideId}')">
+                            ✗ No Thanks
+                        </button>
+                        <button class="btn-share-accept" onclick="acceptShareOfferAsUser2('${myRideId}','${shareOption.matchingRideId}', ${shareOption.sharedFare})">
+                            ✓ Request Share
+                        </button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+        }
+
+        // User2 says "yes, request share" — the request is already in DB; just close modal & wait
+        function acceptShareOfferAsUser2(myRideId, matchingRideId, splitFare) {
+            closeShareModal('shareOfferModal');
+            showMessage(`Share request sent! If accepted, your fare will be ₹${splitFare}.`, 'success');
+            // Poll until User1 responds
+            startShareStatusPoll(myRideId);
+        }
+
+        // User2 declines — nothing to do server-side (ride stays solo for both)
+        function declineShareOffer(myRideId, matchingRideId) {
+            closeShareModal('shareOfferModal');
+            showMessage('Ride booked! Waiting for driver…', 'success');
+        }
+
+        function closeShareModal(id) {
+            const m = document.getElementById(id);
+            if (m) m.remove();
+        }
+
+        // ═══════════════════════════════════════════
+        // SHARE REQUEST MODAL  (shown to User1 = original rider)
+        // ═══════════════════════════════════════════
+        function showShareRequestModal(ride) {
+            if (document.getElementById('shareRequestModal')) return; // already shown
+            sharePromptShownForRide = ride.rideId;
+
+            const sharedFare = ride.sharedFarePerPassenger || Math.ceil(ride.originalFare / 2);
+            const overlay = document.createElement('div');
+            overlay.id = 'shareRequestModal';
+            overlay.className = 'share-modal-overlay';
+            overlay.innerHTML = `
+                <div class="share-modal">
+                    <span class="share-badge">🙋 Share Request</span>
+                    <h3 style="margin:0 0 8px;color:#1a1a1a;">Someone wants to share your ride!</h3>
+                    <p style="color:#555;font-size:14px;margin:0 0 14px;">
+                        Another passenger is heading to the same destination.
+                        Are you comfortable sharing?
+                    </p>
+                    <div style="background:#f8f9fa;border-radius:10px;padding:14px;margin-bottom:14px;">
+                        <p style="margin:0 0 6px;font-size:13px;color:#555;">📌 Destination: <strong>${ride.destinationLocation.address}</strong></p>
+                        <p style="margin:0;font-size:13px;color:#555;">💰 Your fare if you share:</p>
+                    </div>
+                    <div class="share-fare-row">
+                        <div class="share-fare-box original">
+                            <div class="label">Your Current Fare</div>
+                            <div class="amount">₹${ride.originalFare || ride.fare}</div>
+                        </div>
+                        <div class="share-fare-box split">
+                            <div class="label">You Pay (Split)</div>
+                            <div class="amount">₹${sharedFare}</div>
+                        </div>
+                    </div>
+                    <div class="share-btn-row">
+                        <button class="btn-share-decline" onclick="respondToShare('${ride.rideId}', false)">
+                            ✗ No, Solo Ride
+                        </button>
+                        <button class="btn-share-accept" onclick="respondToShare('${ride.rideId}', true)">
+                            ✓ Yes, Share Ride
+                        </button>
+                    </div>
+                </div>`;
+            document.body.appendChild(overlay);
+        }
+
+        async function respondToShare(rideId, accept) {
+            closeShareModal('shareRequestModal');
+            try {
+                const res = await fetch(`${API_BASE}/rides/share/respond`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json',
+                               'Authorization': `Bearer ${localStorage.getItem('token')}` },
+                    body: JSON.stringify({ rideId, accept })
+                });
+                const data = await res.json();
+                if (accept) {
+                    showMessage(`Share accepted! Your updated fare is ₹${data.splitFare}. Waiting for driver…`, 'success');
+                } else {
+                    showMessage('You chose a solo ride. Fare remains unchanged.', 'success');
+                }
+                loadActiveRide();
+            } catch(e) { console.error(e); }
+        }
+
+        // ═══════════════════════════════════════════
+        // POLL – User2 waits for User1 decision
+        // ═══════════════════════════════════════════
+        let sharePollInterval = null;
+        function startShareStatusPoll(rideId) {
+            if (sharePollInterval) return;
+            sharePollInterval = setInterval(async () => {
+                try {
+                    const res  = await fetch(`${API_BASE}/rides/share/status?rideId=${rideId}`,
+                        { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } });
+                    const data = await res.json();
+                    if (data.shareAcceptedByUser1 === true) {
+                        clearInterval(sharePollInterval); sharePollInterval = null;
+                        showMessage(`Great news! Ride share accepted. Your fare is ₹${data.sharedFarePerPassenger} 🎉`, 'success');
+                        loadActiveRide();
+                    } else if (data.shareAcceptedByUser1 === false) {
+                        clearInterval(sharePollInterval); sharePollInterval = null;
+                        showMessage('The other rider declined the share. Your ride continues solo.', 'success');
+                        loadActiveRide();
+                    }
+                } catch(e) { /* silent */ }
+            }, 4000);
+        }
+
+        // ═══════════════════════════════════════════
+        // UTILITIES
+        // ═══════════════════════════════════════════
+        function showMessage(msg, type) {
+            const el = document.getElementById('bookMessage');
+            el.textContent = msg;
+            el.className   = 'message message-' + type;
+            el.style.display = 'block';
+            setTimeout(() => { el.style.display = 'none'; }, 6000);
+        }
+
+        // ═══════════════════════════════════════════
+        // ACTIVE RIDE
+        // ═══════════════════════════════════════════
+        async function loadActiveRide() {
+            try {
+                const res  = await fetch(`${API_BASE}/rides/user?userId=${userId}`,
+                    { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } });
+                const data = await res.json();
+                const container = document.getElementById('activeRideContainer');
+
+                if (data.rides && data.rides.length > 0) {
+                    const completedRide = data.rides.find(r => r.status === 'completed');
+                    if (completedRide) {
+                        const lastId = sessionStorage.getItem('lastCompletedRideId');
+                        if (lastId !== completedRide.rideId) {
+                            showUserFareSummaryModal(completedRide);
+                            sessionStorage.setItem('lastCompletedRideId', completedRide.rideId);
+                        }
+                    }
+
+                    const activeRide = data.rides.find(r => ['pending','accepted','started'].includes(r.status));
+                    if (activeRide) {
+
+                        // ── Show share-request modal for User1 if pending ──
+                        if (activeRide.sharePending && sharePromptShownForRide !== activeRide.rideId) {
+                            showShareRequestModal(activeRide);
+                        }
+
+                        // ── Build driver details ──
+                        let driverDetails = '';
+                        if (activeRide.driverId) {
+                            driverDetails = `
+                                <div style="margin-top:15px;padding:15px;background:#f9f9f9;border-radius:8px;border:1px solid #ddd;">
+                                    <h4>🚗 Driver Details</h4>
+                                    <p><strong>Name:</strong> ${activeRide.driverId.name || 'N/A'}</p>
+                                    <p><strong>Phone:</strong> ${activeRide.driverId.mobileNumber || 'N/A'}</p>
+                                    <p><strong>Vehicle:</strong> ${activeRide.driverId.vehicleType || 'N/A'}</p>
+                                    <p><strong>Vehicle Number:</strong> ${activeRide.driverId.vehicleNumber || 'N/A'}</p>
+                                    <p><strong>Rating:</strong> ⭐ ${activeRide.driverId.rating || '5.0'}/5</p>
+                                </div>`;
+                        }
+
+                        // ── Shared ride info banner ──
+                        let sharedBanner = '';
+                        if (activeRide.isShared && activeRide.sharedWithUserId) {
+                            sharedBanner = `
+                                <div class="shared-ride-banner">
+                                    <h4>🤝 Shared Ride Active</h4>
+                                    <p>Riding together with <strong>${activeRide.sharedWithUserId.name || 'another passenger'}</strong></p>
+                                    <p>Your fare (split equally):</p>
+                                    <span class="split-fare-pill">₹${activeRide.sharedFarePerPassenger || activeRide.fare}</span>
+                                </div>`;
+                        }
+
+                        // ── Waiting-for-share-decision banner (User2) ──
+                        let waitingBanner = '';
+                        if (activeRide.sharePending && !activeRide.isShared && activeRide.shareAcceptedByUser1 === null
+                            && String(activeRide.userId._id || activeRide.userId) !== String(userId)) {
+                            waitingBanner = `
+                                <div class="waiting-share-banner">
+                                    <p><span class="pulse-dot"></span><strong>Waiting for share confirmation…</strong></p>
+                                    <p>The other rider is reviewing your share request.</p>
+                                </div>`;
+                        }
+
+                        let cancelBtn = activeRide.status !== 'started'
+                            ? `<button class="btn btn-danger btn-sm" onclick="userCancelRide('${activeRide.rideId}')">Cancel Ride</button>` : '';
+
+                        let fareDisplay = '';
+                        if (activeRide.status === 'started') {
+                            const displayFare = activeRide.isShared
+                                ? activeRide.sharedFarePerPassenger || activeRide.fare
+                                : activeRide.fare;
+                            fareDisplay = `
+                                <div style="margin-top:20px;padding:20px;background:linear-gradient(135deg,#FF6B35,#FF8C55);border-radius:12px;">
+                                    <p style="color:rgba(255,255,255,.9);margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:1px;font-weight:bold;">
+                                        ${activeRide.isShared ? 'Your Share of Fare' : 'Estimated Fare'}
+                                    </p>
+                                    <div style="font-size:48px;font-weight:bold;color:#fff;margin:0;">₹${displayFare}</div>
+                                    ${activeRide.isShared ? `<p style="color:rgba(255,255,255,.8);font-size:12px;margin:6px 0 0;">Split 50/50 with co-passenger</p>` : ''}
+                                    <p style="color:rgba(255,255,255,.75);margin:8px 0 0;font-size:13px;">
+                                        ${activeRide.distance} km • ${activeRide.estimatedTime} min
+                                    </p>
+                                </div>`;
+                        }
+
+                        container.innerHTML = `
+                            <div class="ride-details">
+                                <p><strong>Ride ID:</strong> ${activeRide.rideId}</p>
+                                <p><strong>Pickup:</strong> ${activeRide.pickupLocation.address}</p>
+                                <p><strong>Destination:</strong> ${activeRide.destinationLocation.address}</p>
+                                <p><strong>Distance:</strong> ${activeRide.distance} km</p>
+                                <p><strong>Estimated Time:</strong> ${activeRide.estimatedTime} minutes</p>
+                                <p><strong>Status:</strong> <span class="status-badge status-${activeRide.status}">${activeRide.status.toUpperCase()}</span></p>
+                                ${sharedBanner}
+                                ${waitingBanner}
+                                ${driverDetails}
+                                <div style="margin-top:15px;">${cancelBtn}</div>
+                                ${fareDisplay}
+                            </div>`;
+                    } else {
+                        container.innerHTML = '<p class="text-muted">No active ride</p>';
+                    }
+                } else {
+                    container.innerHTML = '<p class="text-muted">No active ride</p>';
+                }
+            } catch(e) { console.error('Error loading active ride:', e); }
+        }
+
+        // ═══════════════════════════════════════════
+        // FARE SUMMARY MODAL (on ride completion)
+        // ═══════════════════════════════════════════
+        function showUserFareSummaryModal(ride) {
+            const modal = document.createElement('div');
+            modal.id = 'userFareSummaryModal';
+            modal.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);
+                display:flex;justify-content:center;align-items:center;z-index:3000;`;
+            const now = new Date();
+            const sharedNote = ride.isShared
+                ? `<div style="background:#e3f2fd;border-left:4px solid #1a73e8;padding:10px 14px;border-radius:4px;margin-bottom:14px;">
+                       <p style="margin:0;color:#1a237e;font-size:13px;font-weight:bold;">🤝 Shared Ride — Fare split 50/50</p>
+                   </div>` : '';
+            modal.innerHTML = `
+                <div style="background:#fff;border-radius:15px;padding:30px;max-width:500px;width:95%;
+                     box-shadow:0 8px 32px rgba(0,0,0,.3);animation:slideUp .3s ease-out;">
+                    <style>@keyframes slideUp{from{transform:translateY(30px);opacity:0}to{transform:translateY(0);opacity:1}}</style>
+                    <div style="text-align:center;margin-bottom:25px;">
+                        <div style="font-size:50px;margin-bottom:10px;">✅</div>
+                        <h2 style="margin:0;color:#28a745;">Ride Completed!</h2>
+                        <p style="color:#666;font-size:14px;">${now.toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'})} at ${now.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'})}</p>
+                    </div>
+                    ${sharedNote}
+                    <div style="background:#f8f9fa;border-radius:8px;padding:20px;margin-bottom:20px;">
+                        <p style="margin:0 0 8px;font-size:14px;">📍 <strong>Pickup</strong></p>
+                        <p style="margin:0 0 14px;color:#666;font-size:13px;">${ride.pickupLocation.address}</p>
+                        <p style="margin:0 0 8px;font-size:14px;">📌 <strong>Destination</strong></p>
+                        <p style="margin:0;color:#666;font-size:13px;">${ride.destinationLocation.address}</p>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:15px;margin-bottom:20px;text-align:center;">
+                        <div style="border:1px solid #ddd;border-radius:8px;padding:14px;">
+                            <p style="margin:0;color:#999;font-size:11px;text-transform:uppercase;font-weight:bold;">Distance</p>
+                            <p style="margin:8px 0;font-size:20px;font-weight:bold;color:#3388ff;">${ride.distance}</p>
+                            <p style="margin:0;color:#999;font-size:11px;">km</p>
+                        </div>
+                        <div style="border:1px solid #ddd;border-radius:8px;padding:14px;">
+                            <p style="margin:0;color:#999;font-size:11px;text-transform:uppercase;font-weight:bold;">Time</p>
+                            <p style="margin:8px 0;font-size:20px;font-weight:bold;color:#3388ff;">${ride.actualTime||ride.estimatedTime}</p>
+                            <p style="margin:0;color:#999;font-size:11px;">min</p>
+                        </div>
+                        <div style="border:1px solid #ddd;border-radius:8px;padding:14px;">
+                            <p style="margin:0;color:#999;font-size:11px;text-transform:uppercase;font-weight:bold;">You Pay</p>
+                            <p style="margin:8px 0;font-size:20px;font-weight:bold;color:#28a745;">₹${ride.fare}</p>
+                            <p style="margin:0;color:#999;font-size:11px;">amount</p>
+                        </div>
+                    </div>
+                    <div style="background:#e8f5e9;border-left:4px solid #28a745;padding:12px;border-radius:4px;margin-bottom:20px;">
+                        <p style="margin:0;color:#2e7d32;font-size:14px;font-weight:bold;">✓ Payment Received</p>
+                        <p style="margin:5px 0;color:#558b2f;font-size:12px;">Thank you for using Ridesathi!</p>
+                    </div>
+                    <button onclick="closeUserFareSummaryModal()"
+                        style="width:100%;padding:12px;background:#3388ff;color:#fff;border:none;border-radius:5px;font-size:16px;font-weight:bold;cursor:pointer;">
+                        ✓ Done
+                    </button>
+                </div>`;
+            document.body.appendChild(modal);
+        }
+
+        function closeUserFareSummaryModal() {
+            const m = document.getElementById('userFareSummaryModal');
+            if (m) { m.style.animation = 'slideDown .3s ease-out'; setTimeout(() => m.remove(), 300); }
+        }
+
+        // ═══════════════════════════════════════════
+        // RIDE HISTORY
+        // ═══════════════════════════════════════════
+        async function loadRideHistory() {
+            try {
+                const res  = await fetch(`${API_BASE}/rides/user?userId=${userId}`,
+                    { headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` } });
+                const data = await res.json();
+                const container = document.getElementById('rideHistoryContainer');
+
+                if (data.rides && data.rides.length > 0) {
+                    const hist = data.rides.filter(r => r.status === 'completed' || r.status === 'cancelled');
+                    if (hist.length > 0) {
+                        container.innerHTML = hist.map(ride => `
+                            <div class="ride-item">
+                                <div class="ride-info">
+                                    <p><strong>${ride.rideId}</strong> ${ride.isShared ? '<span style="color:#1a73e8;font-size:12px;">🤝 Shared</span>' : ''}</p>
+                                    <p>${ride.pickupLocation.address} → ${ride.destinationLocation.address}</p>
+                                    <p><small>${new Date(ride.requestedAt).toLocaleString()}</small></p>
+                                </div>
+                                <div class="ride-status">
+                                    <span class="status-badge ${ride.status === 'cancelled' ? 'status-cancelled' : 'status-completed'}">
+                                        ${ride.status === 'cancelled' ? 'Cancelled' : 'Completed'}
+                                    </span>
+                                    ${ride.fare ? `<p class="fare">₹${ride.fare}</p>` : ''}
+                                </div>
+                            </div>`).join('');
+                    } else {
+                        container.innerHTML = '<p class="text-muted">No ride history</p>';
+                    }
+                } else {
+                    container.innerHTML = '<p class="text-muted">No rides yet</p>';
+                }
+            } catch(e) { console.error('Error loading ride history:', e); }
+        }
+
+        // ═══════════════════════════════════════════
+        // CANCEL / LOGOUT
+        // ═══════════════════════════════════════════
+        async function userCancelRide(rideId) {
+            if (!confirm('Are you sure you want to cancel this ride?')) return;
+            try {
+                const res  = await fetch(`${API_BASE}/rides/cancel`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json',
+                               'Authorization': `Bearer ${localStorage.getItem('token')}` },
+                    body: JSON.stringify({ rideId })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    alert('Ride cancelled successfully');
+                    setTimeout(() => { loadActiveRide(); loadRideHistory(); }, 500);
+                } else { alert(`Error: ${data.message}`); }
+            } catch(e) { alert(`Error: ${e.message}`); }
+        }
+
+        function logout() { localStorage.clear(); window.location.href = 'index.html'; }
+
+        // ═══════════════════════════════════════════
+        // INIT
+        // ═══════════════════════════════════════════
+        document.addEventListener('DOMContentLoaded', () => {
+            userId   = localStorage.getItem('userId');
+            userName = localStorage.getItem('userName');
+            if (!userId) { window.location.href = 'login.html'; return; }
+            document.getElementById('userName').textContent = userName;
+            initMap();
+
+            const pickupInput = document.getElementById('pickup');
+            const destInput   = document.getElementById('destination');
+            const pickupList  = document.getElementById('pickup-list');
+            const destList    = document.getElementById('destination-list');
+
+            pickupInput.addEventListener('input', debounce(async e => {
+                renderSuggestions(pickupList, await searchNominatim(e.target.value), setPickup);
+            }, 300));
+            destInput.addEventListener('input', debounce(async e => {
+                renderSuggestions(destList, await searchNominatim(e.target.value), setDestination);
+            }, 300));
+
+            document.getElementById('showRouteBtn').addEventListener('click', computeRoute);
+            document.getElementById('bookRideBtn').addEventListener('click', bookRide);
+
+            loadActiveRide();
+            loadRideHistory();
+            setInterval(loadActiveRide, 3000);
+        });
+    </script>
+</body>
+</html>
