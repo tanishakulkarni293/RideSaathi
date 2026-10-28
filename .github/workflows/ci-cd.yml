@@ -1,16 +1,40 @@
+
 name: Ride Saathi CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
-  backend-check:
+  frontend-check:
+    name: Frontend File Check
     runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Check Frontend Files
+        run: |
+          test -f frontend/index.html
+          test -f frontend/login.html
+          test -f frontend/register.html
+          test -f frontend/user-dashboard.html
+          test -f frontend/driver-dashboard.html
+
+  backend-check:
+    name: Backend Syntax Check
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: backend
 
     steps:
       - name: Checkout Repository
@@ -20,13 +44,11 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
+          cache: npm
           cache-dependency-path: backend/package-lock.json
 
-      - name: Install Dependencies
-        working-directory: backend
+      - name: Install Backend Dependencies
         run: npm ci
 
       - name: Check Server Syntax
-        working-directory: backend
         run: node --check server.js
